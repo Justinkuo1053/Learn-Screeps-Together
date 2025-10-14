@@ -23,7 +23,12 @@ module.exports.loop = function () {
                 ' | Upgraders:' + upgraders.length + 
                 ' | Builders:' + builders.length);
 
-    const spawn = Game.spawns['Spawn1'];
+    // 允許 Spawn 名稱變動；若找不到 Spawn1，取第一個自己的 Spawn
+    const spawn = Game.spawns['Spawn1'] || Object.values(Game.spawns)[0];
+    if (!spawn) {
+        console.log('找不到可用的 Spawn，跳過本 tick');
+        return;
+    }
     const room = spawn.room;
 
     // ========== 2025/10/14 新增：source 旁自動建 container ==========
@@ -41,16 +46,21 @@ module.exports.loop = function () {
                     s.pos.isNearTo(source.pos)
             }).length > 0;
             if (!hasContainer && !hasSite) {
-                for (let dx = -1; dx <= 1; dx++) {
-                    for (let dy = -1; dy <= 1; dy++) {
+                // 確保只建立一個工地（雙層迴圈 break）
+                let placed = false;
+                for (let dx = -1; dx <= 1 && !placed; dx++) {
+                    for (let dy = -1; dy <= 1 && !placed; dy++) {
                         if (dx === 0 && dy === 0) continue;
                         const x = source.pos.x + dx, y = source.pos.y + dy;
                         if (x < 1 || x > 48 || y < 1 || y > 48) continue;
                         if (room.getTerrain().get(x, y) === TERRAIN_MASK_WALL) continue;
                         if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) continue;
                         if (room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0) continue;
-                        room.createConstructionSite(x, y, STRUCTURE_CONTAINER);
-                        break;
+                        const res = room.createConstructionSite(x, y, STRUCTURE_CONTAINER);
+                        if (res === OK) {
+                            placed = true;
+                            console.log('於 source 旁建立 container 工地', x, y);
+                        }
                     }
                 }
             }
@@ -59,7 +69,7 @@ module.exports.loop = function () {
 
     // ========== 2025/10/14 新增：自動清理爛掉太久沒蓋的 extension 工地 ==========
     // 目的：避免 extension 工地長期卡住
-    const allSites = room.find(FIND_CONSTRUCTION_SITES, {
+    const allSites = room.find(FIND_MY_CONSTRUCTION_SITES, {
         filter: s => s.structureType === STRUCTURE_EXTENSION && s.progress === 0
     });
     if (allSites.length > 0 && allSites.length + room.find(FIND_MY_STRUCTURES, {filter:s=>s.structureType===STRUCTURE_EXTENSION}).length > allowedExtensionsByRCL(room.controller.level)) {
@@ -75,7 +85,7 @@ module.exports.loop = function () {
         const map = {1:0, 2:5, 3:10, 4:20, 5:30, 6:40, 7:50, 8:60};
         return map[level] || 0;
     }
-    function findSmartBuildPos(spawn, maxRange = 7) {
+    function findSmartBuildPos(spawn, maxRange = 7, options = {}) {
         const room = spawn.room;
         const terrain = room.getTerrain();
         const p = spawn.pos;
@@ -86,17 +96,41 @@ module.exports.loop = function () {
             [p.x+1, p.y],
             [p.x-1, p.y]
         ];
+        const avoidLowerRight = options.avoidLowerRight !== false; // 預設避免右下象限（你標示的入口）
+        const preferUpperLeft = options.preferUpperLeft !== false; // 預設優先左上象限
+
+        function allowed(x, y) {
+            if (x < 1 || x > 48 || y < 1 || y > 48) return false;
+            if (x === p.x && y === p.y) return false;
+            if (exclude.some(pos => pos[0] === x && pos[1] === y)) return false;
+            if (avoidLowerRight && x >= p.x && y >= p.y) return false; // 右下入口保留
+            if (terrain.get(x, y) === TERRAIN_MASK_WALL) return false;
+            if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) return false;
+            if (room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0) return false;
+            return true;
+        }
+
+        // 第一輪：優先左上象限（不會卡右下走廊）
+        if (preferUpperLeft) {
+            for (let r = 1; r <= maxRange; r++) {
+                for (let dx = -r; dx <= r; dx++) {
+                    for (let dy = -r; dy <= r; dy++) {
+                        const x = p.x + dx, y = p.y + dy;
+                        if (!(x <= p.x && y <= p.y)) continue; // 僅左上
+                        if (allowed(x, y)) {
+                            return new RoomPosition(x, y, room.name);
+                        }
+                    }
+                }
+            }
+        }
         for (let r = 1; r <= maxRange; r++) {
             for (let dx = -r; dx <= r; dx++) {
                 for (let dy = -r; dy <= r; dy++) {
                     const x = p.x + dx, y = p.y + dy;
-                    if (x < 1 || x > 48 || y < 1 || y > 48) continue;
-                    if (x === p.x && y === p.y) continue;
-                    if (exclude.some( pos => pos[0]===x && pos[1]===y )) continue;
-                    if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
-                    if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) continue;
-                    if (room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0) continue;
-                    return new RoomPosition(x, y, room.name);
+                    if (allowed(x, y)) {
+                        return new RoomPosition(x, y, room.name);
+                    }
                 }
             }
         }
@@ -111,7 +145,7 @@ module.exports.loop = function () {
             filter: s => s.structureType === STRUCTURE_EXTENSION
         }).length;
         if (room.controller.level >= 2 && (existingExtCount + extSiteCount) < allowed) {
-            const pos = findSmartBuildPos(spawn, 7);
+            const pos = findSmartBuildPos(spawn, 7, { preferUpperLeft: true, avoidLowerRight: true });
             if (pos) {
                 const res = room.createConstructionSite(pos.x, pos.y, STRUCTURE_EXTENSION);
                 if (res === OK) {
@@ -121,6 +155,19 @@ module.exports.loop = function () {
         }
     }
     // ===========================================
+
+    // 緊急開局/復甦：若沒工或沒有採集者，直接生最小採集者，不等滿能量
+    const totalCreeps = Object.keys(Game.creeps).length;
+    if (!spawn.spawning && (harvesters.length === 0 || totalCreeps === 0)) {
+        if (room.energyAvailable >= 200) {
+            const name = 'boot-' + Game.time;
+            const body = [WORK, CARRY, MOVE];
+            const res = spawn.spawnCreep(body, name, { memory: { role: 'harvester' } });
+            if (res === OK) {
+                console.log('Emergency spawn:', name);
+            }
+        }
+    }
 
     // 2025/10/14 改良：只有能量全滿才生產（防止只能生小 creep）
     if(harvesters.length < 2 && room.energyAvailable === room.energyCapacityAvailable) {
@@ -167,24 +214,58 @@ module.exports.loop = function () {
 function runHarvester(creep) {
     // 2025/10/14 若有 container優先補給，再補 Spawn/Extension
     if(creep.store.getFreeCapacity() == 0) {
-        let targets = creep.room.find(FIND_STRUCTURES, {
-            filter: s => (
-                (s.structureType == STRUCTURE_CONTAINER && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0) ||
-                (s.structureType == STRUCTURE_EXTENSION && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0) ||
-                (s.structureType == STRUCTURE_SPAWN && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0)
-            )
+        // 先找 Container，有空位就優先填
+        let target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.structureType == STRUCTURE_CONTAINER && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
         });
-        const target = creep.pos.findClosestByPath(targets);
-        if(target) {
-            if(creep.transfer(target, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(target, {visualizePathStyle: {stroke: '#ffaa00'}});
+        // 若沒有可填的 Container，再找 Spawn / Extension
+        if (!target) {
+            const anchor = (creep.room.find(FIND_MY_SPAWNS)[0] || { pos: creep.pos }).pos;
+            target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: s => (
+                    (s.structureType == STRUCTURE_EXTENSION || s.structureType == STRUCTURE_SPAWN) &&
+                    s.store.getFreeCapacity(RESOURCE_ENERGY) > 0 &&
+                    s.pos.inRangeTo(anchor, 8) // 僅補給靠近基地的能量結構，避免跑太遠
+                )
+            });
+        }
+        if (target) {
+            // 若目標過遠（>20 格）也不跑，改走備援行為，避免長距離浪費
+            if (creep.pos.getRangeTo(target) > 20) target = null;
+            if (creep.transfer(target, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, { visualizePathStyle: { stroke: '#ffaa00' } });
+            }
+        } else {
+            // 沒地方可交付：協助建造；若也沒有工地，改為幫忙升級，最後才丟地上避免停滯
+            const site = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+            if (site) {
+                if (creep.build(site) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(site, { visualizePathStyle: { stroke: '#ffaa00' } });
+                }
+                creep.say('🚧');
+            } else if (creep.room.controller) {
+                if (creep.upgradeController(creep.room.controller) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(creep.room.controller, { visualizePathStyle: { stroke: '#ffaa00' } });
+                }
+                creep.say('⚡備援');
+            } else {
+                creep.drop(RESOURCE_ENERGY);
+                creep.say('⬇️');
             }
         }
     }
     else {
-        const source = creep.pos.findClosestByPath(FIND_SOURCES);
-        if(creep.harvest(source) == ERR_NOT_IN_RANGE) {
-            creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}});
+        let source = creep.pos.findClosestByPath(FIND_SOURCES);
+        // 找不到可行路徑就退而求其次用距離最近（多半是被阻擋時）
+        if (!source) source = creep.pos.findClosestByRange(FIND_SOURCES);
+        if (source) {
+            if(creep.harvest(source) == ERR_NOT_IN_RANGE) {
+                creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+        } else {
+            // 異常：房間沒有 source，避免呆站
+            creep.moveTo(creep.room.controller || Game.spawns['Spawn1'] || Object.values(Game.spawns)[0]);
+            creep.say('❓no src');
         }
     }
 }
@@ -235,9 +316,6 @@ function runBuilder(creep) {
         if(target) {
             if(creep.build(target) == ERR_NOT_IN_RANGE) {
                 creep.moveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
-            }
-            else{
-                creep.say('🏠滿了!');
             }
         }
         else {
