@@ -1,0 +1,17 @@
+port = 21025
+host = 0.0.0.0
+cli_port = 21026
+cli_host = localhost
+runners_cnt = 1
+runner_threads = 4
+processors_cnt = 2
+logdir = logs
+modfile = /screeps/mods.json
+assetdir = /screeps/assets
+db = db.json
+log_console = false
+log_rotate_keep = 5
+storage_disabled = false
+restart_interval = 3600
+# 這裡可填入你的 Steam Web API Key；也可用環境變數注入
+steam_api_key = 00000000000000000000000000000000

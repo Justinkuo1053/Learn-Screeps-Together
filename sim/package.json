@@ -1,0 +1,14 @@
+{
+  "name": "screeps-mini-sim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal Screeps-like simulator to test spawn policies (RCL3 full-energy harvester).",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "run": "node index.js"
+  },
+  "keywords": ["screeps", "simulator", "rcl3", "spawn"],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  screeps:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: local/screeps-private:node12
+    container_name: screeps-private
+    platform: linux/amd64
+    environment:
+      - STEAM_API_KEY=${STEAM_API_KEY}
+    ports:
+      - "21025:21025"
+      - "21026:21026"
+    volumes:
+      - ../screeps-data:/screeps
+    restart: unless-stopped
