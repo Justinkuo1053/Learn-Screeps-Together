@@ -1,0 +1,16 @@
+{
+  "name": "learn-screeps-together",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Screeps code in TypeScript",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.20",
+    "@types/screeps": "^3.3.8",
+    "typescript": "^5.9.3"
+  }
+}

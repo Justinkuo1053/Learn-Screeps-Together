@@ -1,24 +1,214 @@
-
-
-// 基礎主程式 （持續按照tick回合制）
-
+// main.js - Screeps 基礎三角色系統
 module.exports.loop = function () {
+    
+    // === 清理記憶體 ===
+    // 清除已死亡 creep 的記憶，避免記憶體洩漏
+    for(let name in Memory.creeps) {
+        if(!Game.creeps[name]) {
+            delete Memory.creeps[name];
+            console.log('清除記憶:', name);
+        }]
+    }
 
-	const spawn = Game.spawns['Spawn1']
+    // === 計算各角色數量 ===
+    const harvesters = _.filter(Game.creeps, c => c.memory.role == 'harvester');
+    const upgraders = _.filter(Game.creeps, c => c.memory.role == 'upgrader');
+    const builders = _.filter(Game.creeps, c => c.memory.role == 'builder');
+    
+    // 顯示目前狀態
+    console.log('📊 Harvesters:' + harvesters.length + 
+                ' | Upgraders:' + upgraders.length + 
+                ' | Builders:' + builders.length);
 
-    co
+    // === 自動生產 Creep ===
+    const spawn = Game.spawns['Spawn1']; // 改成你的 Spawn 名稱
+    const room = spawn.room;
 
-	}
+    // ========== 新增：依 RCL 自動放 Extension 工地 ==========
+    // 說明：
+    // - allowedExtensionsByRCL：每個 RCL 可建的 extension 上限（Screeps 規則）。
+    // - findBuildPosNearSpawn：在 spawn 周圍找可以放工地的位置（避開牆、既有結構與工地）。
+    // - 主流程：若房間既有 + 工地數量 < 上限，就嘗試放新的工地。
 
+    function allowedExtensionsByRCL(level) {
+        const map = {1:0, 2:5, 3:10, 4:20, 5:30, 6:40, 7:50, 8:60};
+        return map[level] || 0;
+    }
 
+    function findBuildPosNearSpawn(spawn, maxRange = 4) {
+        const room = spawn.room;
+        const terrain = room.getTerrain();
+        const p = spawn.pos;
+        // 先找平地（非牆、非工地、非結構、優先非沼澤），由近到遠
+        for (let r = 1; r <= maxRange; r++) {
+            for (let dx = -r; dx <= r; dx++) {
+                for (let dy = -r; dy <= r; dy++) {
+                    const x = p.x + dx, y = p.y + dy;
+                    if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+                    if (x === p.x && y === p.y) continue;
+                    if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue; // 牆不可建
+                    if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) continue; // 有結構
+                    if (room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0) continue; // 有工地
+                    // 優先回傳平地（包含 swamp 也可，若想嚴格避 swamp 可再判斷）
+                    return new RoomPosition(x, y, room.name);
+                }
+            }
+        }
+        return null;
+    }
 
-// 清理記憶體
+    // 主流程：當 RCL >= 2，且現有 extension（已建 + 工地）小於上限時，嘗試放工地
+    if (room.controller) {
+        const allowed = allowedExtensionsByRCL(room.controller.level);
+        const existingExtCount = room.find(FIND_MY_STRUCTURES, {
+            filter: s => s.structureType === STRUCTURE_EXTENSION
+        }).length;
+        const extSiteCount = room.find(FIND_MY_CONSTRUCTION_SITES, {
+            filter: s => s.structureType === STRUCTURE_EXTENSION
+        }).length;
+        if (room.controller.level >= 2 && (existingExtCount + extSiteCount) < allowed) {
+            const pos = findBuildPosNearSpawn(spawn, 4);
+            if (pos) {
+                const res = room.createConstructionSite(pos.x, pos.y, STRUCTURE_EXTENSION);
+                if (res === OK) {
+                    console.log('Placed extension site at', pos.x, pos.y, `(${existingExtCount + extSiteCount + 1}/${allowed})`);
+                }
+            }
+        }
+    }
+    // ========== 新增結束 ==========
+    
+    // 優先級：Harvester > Upgrader > Builder
+    if(harvesters.length < 2) {
+        const newName = 'H' + Game.time;
+        // 若房間一次性能量（spawn + extensions）到 550，給中等身體；否則給小身體
+        const body = (room.energyCapacityAvailable >= 550) ? [WORK,WORK,CARRY,MOVE,MOVE] : [WORK,CARRY,MOVE];
+        spawn.spawnCreep(body, newName, {memory: {role: 'harvester'}});
+    }
+    else if(upgraders.length < 1) {
+        const newName = 'U' + Game.time;
+        const body = (room.energyCapacityAvailable >= 550) ? [WORK,WORK,CARRY,MOVE,MOVE] : [WORK,CARRY,MOVE];
+        spawn.spawnCreep(body, newName, {memory: {role: 'upgrader'}});
+    }
+    else if(builders.length < 2) {
+        const newName = 'B' + Game.time;
+        const body = (room.energyCapacityAvailable >= 550) ? [WORK,WORK,CARRY,MOVE,MOVE] : [WORK,CARRY,MOVE];
+        spawn.spawnCreep(body, newName, {memory: {role: 'builder'}});
+    }
 
-// 計算個角色數量
+    // 顯示生產狀態
+    if(spawn.spawning) {
+        const spawningCreep = Game.creeps[spawn.spawning.name];
+        spawn.room.visual.text(
+            '🛠️ ' + spawningCreep.memory.role,
+            spawn.pos.x + 1, 
+            spawn.pos.y, 
+            {align: 'left', opacity: 0.8});
+    }
 
+    // === 執行各 Creep 的任務 ===
+    for(let name in Game.creeps) {
+        const creep = Game.creeps[name];
+        
+        // 根據角色執行不同任務
+        if(creep.memory.role == 'harvester') {
+            runHarvester(creep);
+        }
+        else if(creep.memory.role == 'upgrader') {
+            runUpgrader(creep);
+        }
+        else if(creep.memory.role == 'builder') {
+            runBuilder(creep);
+        }
+    }
+}
 
-// 顯示角色數量
+// === Harvester 角色邏輯 ===
+function runHarvester(creep) {
+    // 如果背包滿了，去補充 Spawn
+    if(creep.store.getFreeCapacity() == 0) {
+        const target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: (s) => {
+                return (s.structureType == STRUCTURE_EXTENSION ||
+                        s.structureType == STRUCTURE_SPAWN) &&
+                       s.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+            }
+        });
+        if(target) {
+            if(creep.transfer(target, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, {visualizePathStyle: {stroke: '#ffaa00'}});
+            }
+        }
+    }
+    // 否則去採集
+    else {
+        const source = creep.pos.findClosestByPath(FIND_SOURCES);
+        if(creep.harvest(source) == ERR_NOT_IN_RANGE) {
+            creep.moveTo(source, {visualizePathStyle: {stroke: '#ffaa00'}});
+        }
+    }
+}
 
-// 自動生產
+// === Upgrader 角色邏輯 ===
+function runUpgrader(creep) {
+    // 狀態切換：工作中 / 採集中
+    if(creep.memory.upgrading && creep.store[RESOURCE_ENERGY] == 0) {
+        creep.memory.upgrading = false;
+        creep.say('🔄 採集');
+    }
+    if(!creep.memory.upgrading && creep.store.getFreeCapacity() == 0) {
+        creep.memory.upgrading = true;
+        creep.say('⚡ 升級');
+    }
 
+    // 執行任務
+    if(creep.memory.upgrading) {
+        if(creep.upgradeController(creep.room.controller) == ERR_NOT_IN_RANGE) {
+            creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#00ff00'}});
+        }
+    }
+    else {
+        const source = creep.pos.findClosestByPath(FIND_SOURCES);
+        if(creep.harvest(source) == ERR_NOT_IN_RANGE) {
+            creep.moveTo(source, {visualizePathStyle: {stroke: '#00ff00'}});
+        }
+    }
+}
 
+// === Builder 角色邏輯 ===
+function runBuilder(creep) {
+    // 狀態切換：建造中 / 採集中
+    if(creep.memory.building && creep.store[RESOURCE_ENERGY] == 0) {
+        creep.memory.building = false;
+        creep.say('🔄 採集');
+    }
+    if(!creep.memory.building && creep.store.getFreeCapacity() == 0) {
+        creep.memory.building = true;
+        creep.say('🔨 建造');
+    }
+
+    // 執行任務
+    if(creep.memory.building) {
+        const target = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+        if(target) {
+            if(creep.build(target) == ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+            }
+            else{
+                creep.say('🏠滿了!'); // 如果找不到目標，它會說話
+            }
+        }
+        // 如果沒有建築工地，就去升級控制器
+        else {
+            if(creep.upgradeController(creep.room.controller) == ERR_NOT_IN_RANGE) {
+                creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}});
+            }
+        }
+    }
+    else {
+        const source = creep.pos.findClosestByPath(FIND_SOURCES);
+        if(creep.harvest(source) == ERR_NOT_IN_RANGE) {
+            creep.moveTo(source, {visualizePathStyle: {stroke: '#ffffff'}});
+        }
+    }
+}

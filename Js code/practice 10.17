@@ -1,0 +1,21 @@
+
+module.exports.loop = function () {
+    for(let name in Memory.creeps) {
+        if(!Game.creeps[name]) {
+            delete Memory.creeps[name];
+            console.log('清除記憶:', name);
+        }
+    }
+}
+
+// ？？ 下面這段其實邏輯蠻難的 < 待學習 可以先用 for 寫
+    // // === 計算各角色數量 ===
+    // const harvesters = _.filter(Game.creeps, c => c.memory.role == 'harvester');
+    // const upgraders = _.filter(Game.creeps, c => c.memory.role == 'upgrader');
+    // const builders = _.filter(Game.creeps, c => c.memory.role == 'builder');
+    // console.log('📊 Harvesters:' + harvesters.length + 
+    //             ' | Upgraders:' + upgraders.length + 
+    //             ' | Builders:' + builders.length);
+
+
+const spawn = Game.spawns['Spawn']
