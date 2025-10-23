@@ -18,4 +18,28 @@ module.exports.loop = function () {
     //             ' | Builders:' + builders.length);
 
 
-const spawn = Game.spawns['Spawn']
+const spawn = Game.spawns['Spawn'] || Object.values(Game.spawns)[0];
+if (!spawn) return;
+const room = spawn.room;
+
+// 下面這段就是為了放置看看有沒有container  篩選條件就是用位置
+// const sources = room.find(FIND_SOURCES);
+// for (let source of sources) {
+//     if (source.pos.x > 35 && source.pos.y > 16 {
+//         const hasContainer = room.find(FIND_STRUCTURES, {
+
+
+
+
+
+
+
+
+
+
+
+// }
+
+function allowedExtensionsByRCL(level) {
+
+}
