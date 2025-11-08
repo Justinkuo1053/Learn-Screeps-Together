@@ -130,3 +130,5 @@ func (s *Spawn) SpawnCreep(body []string, name string, memory creepMemoryStruct)
 	}
 	s.Spawning = newCreep
 }
+
+// 10.23 先簡單列出我自己的重構的直覺而已，完全沒有驗證過
