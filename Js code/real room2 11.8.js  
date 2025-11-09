@@ -1,22 +1,21 @@
 // ============================================================
-// main.js - 房間2：跨房間支援系統
+// main.js - 房間2：自力更生發展系統
 // ============================================================
-// 版本: 2025/11/09 支援房間1專用版
-// 適用場景: 房間2單一 Source，專門支援房間1的 Controller 升級
-// 核心策略: 最小化房間2建設，最大化對房間1的支援
+// 版本: 2025/11/09 專注自身發展版
+// 適用場景: 房間2單一 Source，專注自身發展
+// 核心策略: 快速升級 RCL，建立完整經濟體系
 // 
 // 主要功能模組:
 // 1. 記憶體清理系統
-// 2. 跨房間 Upgrader 生產系統（主力角色）
-// 3. 少量本地 Harvester（維持基本運作）
-// 4. 簡化建築系統（不建 Container/Tower/Storage）
+// 2. 標準三角色生產系統 (Harvester, Upgrader, Builder)
+// 3. 自動建築建造系統 (Container, Extension, Tower, Storage)
+// 4. 高效能量管理系統
 // ============================================================
 
 // ============================================================
 // 配置區：請根據你的實際房間名稱修改
 // ============================================================
-const ROOM1_NAME = 'W3N28';  // 房間1的名稱（主房間，要支援的目標）
-const ROOM2_NAME = 'W3N27';  // 房間2的名稱（本房間，支援房間）
+const ROOM2_NAME = 'W2N28';  // 房間2的名稱（本房間）
 
 module.exports.loop = function () {
     
@@ -36,11 +35,11 @@ module.exports.loop = function () {
     
     // 統計各角色數量
     const harvesters = _.filter(Game.creeps, c => c.memory.role == 'harvester' && c.memory.homeRoom == ROOM2_NAME);
-    const localUpgraders = _.filter(Game.creeps, c => c.memory.role == 'localUpgrader' && c.memory.homeRoom == ROOM2_NAME);
-    const crossRoomUpgraders = _.filter(Game.creeps, c => c.memory.role == 'crossRoomUpgrader' && c.memory.homeRoom == ROOM2_NAME);
+    const upgraders = _.filter(Game.creeps, c => c.memory.role == 'upgrader' && c.memory.homeRoom == ROOM2_NAME);
+    const builders = _.filter(Game.creeps, c => c.memory.role == 'builder' && c.memory.homeRoom == ROOM2_NAME);
     
     // 控制台輸出
-    console.log('🌍 [Room2] H:' + harvesters.length + ' | LocalU:' + localUpgraders.length + ' | CrossU:' + crossRoomUpgraders.length);
+    console.log('🌍 [Room2] H:' + harvesters.length + ' | U:' + upgraders.length + ' | B:' + builders.length);
 
     // 取得 Spawn（根據房間名稱自動找）
     const spawn = Object.values(Game.spawns).find(s => s.room.name === ROOM2_NAME);
@@ -51,32 +50,50 @@ module.exports.loop = function () {
     }
     
     const room = spawn.room;
+    
+    // 取得當前 RCL
+    const rcl = room.controller ? room.controller.level : 1;
 
     // ========================================================
     // 模組 3: Creep 動態生產系統
     // ========================================================
-    // 房間2人口配置策略（雙重目標優化版）：
+    // 房間2人口配置策略（自力更生版）：
     // 
-    // 【重要知識】Controller 升級限制：
-    // - 每個 Controller 每 tick 最多接受 15 能量
-    // - 1個 WORK 部件 = 1 能量/tick
-    // - 所以理論上 15 個 WORK 部件就飽和了
-    // - 實際建議：2-3 個 Upgrader（每個 3-4 WORK）= 9-12 能量/tick
+    // 💡 策略說明：
+    // - 專注房間2自身發展
+    // - 快速衝 RCL，解鎖更多建築和功能
+    // - 建立完整的三角色經濟體系
     // 
-    // 配置策略：
-    // - 2 個本地 Harvester：1個採集，1個同時維護房間2 Controller
-    // - 2 個跨房間 Upgrader：專職支援房間1（避免 Controller 擁擠）
-    // - 1 個本地 Upgrader：緊急救援房間2 Controller（防止 Downgrade）
+    // 配置策略（依 RCL 動態調整）：
+    // RCL 1-2: H:2 U:2 B:1 (快速衝 RCL3)
+    // RCL 3-4: H:2 U:2 B:1 (穩定發展)
+    // RCL 5+:  H:3 U:3 B:2 (全面發展)
     // 
     // 優點：
-    // - 救援房間2 Controller（避免 Downgrade）
-    // - 不過度擁擠房間1 Controller（尊重 15 能量/tick 限制）
-    // - 平衡兩個房間的發展需求
+    // - 專注提升房間2實力
+    // - 簡單高效的經濟體系
+    // - 未來有餘力再考慮支援其他房間
     // ========================================================
     
-    const targetHarvesters = 2;              // 本地採集者
-    const targetLocalUpgraders = 1;          // 本地升級者（救援房間2 Controller）
-    const targetCrossRoomUpgraders = 2;      // 跨房間支援者（避免擁擠）
+    // 根據 RCL 動態調整人口配置
+    let targetHarvesters, targetUpgraders, targetBuilders;
+    
+    if (rcl < 3) {
+        // RCL 1-2: 快速衝 RCL3
+        targetHarvesters = 2;
+        targetUpgraders = 2;
+        targetBuilders = 1;
+    } else if (rcl < 5) {
+        // RCL 3-4: 穩定發展
+        targetHarvesters = 2;
+        targetUpgraders = 2;
+        targetBuilders = 1;
+    } else {
+        // RCL 5+: 全面發展
+        targetHarvesters = 3;
+        targetUpgraders = 3;
+        targetBuilders = 2;
+    }
     
     // ========================================================
     // 生產邏輯 1: 緊急啟動模式
@@ -129,73 +146,63 @@ module.exports.loop = function () {
     }
     
     // ========================================================
-    // 生產邏輯 3: 生產本地 Upgrader（緊急救援房間2）
+    // 生產邏輯 3: 生產 Upgrader
     // ========================================================
-    else if (!spawn.spawning && localUpgraders.length < targetLocalUpgraders) {
+    else if (!spawn.spawning && upgraders.length < targetUpgraders) {
         const ea = room.energyAvailable;
         let body;
         
-        // 本地 Upgrader 配置（不需要太多 MOVE）
+        // Upgrader 配置
         if (ea >= 550) {
-            // 3 WORK + 1 CARRY + 2 MOVE
             body = [WORK,WORK,WORK,CARRY,MOVE,MOVE];
         } else if (ea >= 400) {
-            // 2 WORK + 1 CARRY + 2 MOVE
             body = [WORK,WORK,CARRY,MOVE,MOVE];
         } else if (ea >= 300) {
-            // 1 WORK + 1 CARRY + 2 MOVE
             body = [WORK,CARRY,MOVE,MOVE];
         }
         
         if (body) {
-            const name = '[R2]LocalU-' + Game.time;
+            const name = '[R2]U-' + Game.time;
             const res = spawn.spawnCreep(body, name, {
                 memory: {
-                    role: 'localUpgrader',
+                    role: 'upgrader',
                     homeRoom: ROOM2_NAME,
-                    working: false
+                    upgrading: false
                 }
             });
             if (res === OK) {
-                console.log('[Room2] 🆘 生產本地 Upgrader (救援 Controller):', name);
+                console.log('[Room2] ⚡ 生產 Upgrader:', name);
             }
         }
     }
     
     // ========================================================
-    // 生產邏輯 4: 生產跨房間 Upgrader（支援房間1）
+    // 生產邏輯 4: 生產 Builder
     // ========================================================
-    else if (!spawn.spawning && crossRoomUpgraders.length < targetCrossRoomUpgraders) {
+    else if (!spawn.spawning && builders.length < targetBuilders) {
         const ea = room.energyAvailable;
         let body;
         
-        // 跨房間 Upgrader 需要更多 MOVE（長距離移動）
-        if (ea >= 800) {
-            // 4 WORK + 2 CARRY + 4 MOVE (移動不減速)
-            body = [WORK,WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE];
-        } else if (ea >= 600) {
-            // 3 WORK + 2 CARRY + 3 MOVE
-            body = [WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE,MOVE];
+        // Builder 配置
+        if (ea >= 550) {
+            body = [WORK,WORK,WORK,CARRY,MOVE,MOVE];
         } else if (ea >= 400) {
-            // 2 WORK + 1 CARRY + 2 MOVE
-            body = [WORK,WORK,CARRY,MOVE,MOVE];
+            body = [WORK,WORK,CARRY,MOVE];
         } else if (ea >= 300) {
-            // 1 WORK + 1 CARRY + 2 MOVE
             body = [WORK,CARRY,MOVE,MOVE];
         }
         
         if (body) {
-            const name = '[R2→R1]U-' + Game.time;
+            const name = '[R2]B-' + Game.time;
             const res = spawn.spawnCreep(body, name, {
                 memory: {
-                    role: 'crossRoomUpgrader',
+                    role: 'builder',
                     homeRoom: ROOM2_NAME,
-                    targetRoom: ROOM1_NAME,
-                    working: false
+                    building: false
                 }
             });
             if (res === OK) {
-                console.log('[Room2] 🌍 生產跨房間 Upgrader:', name);
+                console.log('[Room2] � 生產 Builder:', name);
             }
         }
     }
@@ -225,298 +232,356 @@ module.exports.loop = function () {
         if(creep.memory.role == 'harvester') {
             runHarvester(creep);
         }
-        else if(creep.memory.role == 'localUpgrader') {
-            runLocalUpgrader(creep);
+        else if(creep.memory.role == 'upgrader') {
+            runUpgrader(creep);
         }
-        else if(creep.memory.role == 'crossRoomUpgrader') {
-            runCrossRoomUpgrader(creep);
+        else if(creep.memory.role == 'builder') {
+            runBuilder(creep);
         }
     }
 }
 
 // ============================================================
-// Harvester 角色邏輯函數（固定站位採集版）
+// Harvester 角色邏輯函數
 // ============================================================
-// 角色定位: 固定站位採集專員
-// 主要任務: 
-//   1. 找到 Source 旁最佳位置（只需一次）
-//   2. 站在固定位置持續採集
-//   3. 能量掉在地上讓其他 creep 撿
-// 優點: 不移動 = 100% 工作效率，不阻擋其他 creep
+// 角色定位: 採集者 + 運輸者
+// 主要任務: 從 Source 採集能量 → 運送到 Spawn/Extension/Tower/Storage
+// 工作流程:
+//   1. 背包空 → 去採集能量 (優先從 Container 取,沒有才直接採 Source)
+//   2. 背包滿 → 運送能量 (優先級: Spawn/Extension > Tower > Storage > Container)
+//   3. 無處存放 → 協助建造或升級 (避免閒置)
 // ============================================================
 function runHarvester(creep) {
     
-    // === 第一次執行：記錄固定站位 ===
-    if (!creep.memory.fixedPos) {
-        const source = creep.pos.findClosestByPath(FIND_SOURCES);
+    // === 階段判斷: 背包是否已滿 ===
+    if(creep.store.getFreeCapacity() == 0) {
+        // 背包已滿,進入運送模式
         
-        if (source) {
-            // 找 Source 旁的空位
-            const pos = source.pos;
-            const terrain = creep.room.getTerrain();
-            
-            for (let dx = -1; dx <= 1; dx++) {
-                for (let dy = -1; dy <= 1; dy++) {
-                    if (dx === 0 && dy === 0) continue;
-                    
-                    const x = pos.x + dx;
-                    const y = pos.y + dy;
-                    
-                    if (terrain.get(x, y) !== TERRAIN_MASK_WALL) {
-                        // 找到可用位置，記錄下來
-                        creep.memory.fixedPos = { x, y };
-                        creep.memory.sourceId = source.id;
-                        console.log(`[R2] ${creep.name} 選擇固定位置 (${x},${y})`);
-                        break;
-                    }
-                }
-                if (creep.memory.fixedPos) break;
-            }
-        }
-    }
-    
-    // === 移動到固定位置 ===
-    if (creep.memory.fixedPos) {
-        const targetPos = new RoomPosition(
-            creep.memory.fixedPos.x,
-            creep.memory.fixedPos.y,
-            creep.room.name
-        );
-        
-        if (!creep.pos.isEqualTo(targetPos)) {
-            // 還沒到固定位置，移動過去
-            creep.moveTo(targetPos, {
-                visualizePathStyle: { stroke: '#ffaa00' }
-            });
-            creep.say('📍');
-            return;
-        }
-        
-        // === 已在固定位置，開始採集 ===
-        const source = Game.getObjectById(creep.memory.sourceId);
-        
-        if (source) {
-            const result = creep.harvest(source);
-            
-            if (result === OK) {
-                creep.say('⛏️');
-            }
-            
-            // 背包滿了，把能量丟到地上
-            if (creep.store.getFreeCapacity() === 0) {
-                // 先補給 Spawn/Extension
-                const structures = creep.pos.findInRange(FIND_STRUCTURES, 1, {
-                    filter: s => (s.structureType === STRUCTURE_SPAWN || 
-                                 s.structureType === STRUCTURE_EXTENSION) &&
-                                 s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-                });
-                
-                if (structures.length > 0) {
-                    creep.transfer(structures[0], RESOURCE_ENERGY);
-                } else {
-                    // 沒有建築在旁邊，能量會自動掉地上
-                    // 其他 creep 會來撿
-                }
-            }
-        }
-    }
-}
-
-// ============================================================
-// 本地 Upgrader 角色邏輯函數
-// ============================================================
-// 角色定位: 房間2 Controller 維護專員
-// 主要任務: 專職升級房間2的 Controller，防止 Downgrade
-// 工作流程:
-//   1. 背包空 → 從 Source 採集能量
-//   2. 背包滿 → 升級房間2的 Controller
-//   3. 永不離開房間2
-// 優先級: 救援任務，最高優先生產
-// ============================================================
-function runLocalUpgrader(creep) {
-    
-    // === 狀態切換邏輯 ===
-    if(creep.memory.working && creep.store[RESOURCE_ENERGY] == 0) {
-        creep.memory.working = false;
-        creep.say('🔄 採集');
-    }
-    
-    if(!creep.memory.working && creep.store.getFreeCapacity() == 0) {
-        creep.memory.working = true;
-        creep.say('⚡ 升級');
-    }
-    
-    // === 執行對應的行動 ===
-    if(creep.memory.working) {
-        // --- 升級房間2的 Controller ---
-        const controller = creep.room.controller;
-        
-        if (controller) {
-            const upgradeResult = creep.upgradeController(controller);
-            
-            if (upgradeResult == ERR_NOT_IN_RANGE) {
-                creep.moveTo(controller, {
-                    visualizePathStyle: {stroke: '#00ff00'}  // 綠色（升級中）
-                });
-            }
-        }
-    }
-    else {
-        // --- 採集能量 ---
-        const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
-        
-        if (source) {
-            const harvestResult = creep.harvest(source);
-            
-            if (harvestResult == ERR_NOT_IN_RANGE) {
-                creep.moveTo(source, {
-                    visualizePathStyle: {stroke: '#ffff00'}  // 黃色（採集中）
-                });
-            }
-        }
-    }
-}
-
-// ============================================================
-// 跨房間 Upgrader 角色邏輯函數
-// ============================================================
-// 角色定位: 跨房間支援升級專員
-// 主要任務: 在房間2採集能量 → 移動到房間1 → 升級房間1的 Controller
-// 工作流程:
-//   1. 在房間2直接從 Source 採集能量（不用 Container）
-//   2. 能量滿後移動到房間1
-//   3. 在房間1升級 Controller
-//   4. 能量用完後返回房間2重新採集
-// ============================================================
-function runCrossRoomUpgrader(creep) {
-    
-    // === 狀態切換邏輯 ===
-    if(creep.memory.working && creep.store[RESOURCE_ENERGY] == 0) {
-        creep.memory.working = false;
-        creep.say('🔄 返回');
-    }
-    
-    if(!creep.memory.working && creep.store.getFreeCapacity() == 0) {
-        creep.memory.working = true;
-        creep.say('🚀 出發');
-    }
-    
-    // === 執行對應的行動 ===
-    if(creep.memory.working) {
-        // --- 工作模式: 前往房間1升級 ---
-        
-        if (creep.room.name !== creep.memory.targetRoom) {
-            // 還沒到目標房間，移動過去
-            const exitDir = creep.room.findExitTo(creep.memory.targetRoom);
-            
-            if (exitDir === ERR_NO_PATH || exitDir === ERR_INVALID_ARGS) {
-                console.log(`[R2→R1] ❌ ${creep.name} 找不到前往 ${creep.memory.targetRoom} 的路徑`);
-                return;
-            }
-            
-            const exit = creep.pos.findClosestByPath(exitDir);
-            if (exit) {
-                creep.moveTo(exit, {
-                    visualizePathStyle: {stroke: '#00ffff'}  // 青色（跨房間）
-                });
-            }
-        }
-        else {
-            // === 已在目標房間，升級 Controller（防擁擠機制）===
-            const controller = creep.room.controller;
-            
-            if (!controller) {
-                console.log(`[R2→R1] ❌ ${creep.name} 在 ${creep.room.name} 找不到 Controller`);
-                return;
-            }
-            
-            // 檢查 Controller 周圍是否已經有太多 creep
-            const nearbyCreeps = controller.pos.findInRange(FIND_MY_CREEPS, 3, {
-                filter: c => c.memory.role === 'crossRoomUpgrader' || c.memory.role === 'upgrader'
-            });
-            
-            // 如果周圍已經有 3 個以上 Upgrader，就等待或建造
-            if (nearbyCreeps.length > 3 && !nearbyCreeps.some(c => c.id === creep.id)) {
-                // 尋找工地協助建造
-                const constructionSite = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
-                
-                if (constructionSite) {
-                    if (creep.build(constructionSite) == ERR_NOT_IN_RANGE) {
-                        creep.moveTo(constructionSite, {
-                            visualizePathStyle: {stroke: '#ffffff'}  // 白色（建造中）
-                        });
-                    }
-                    creep.say('🏗️');
-                } else {
-                    // 沒事做就等待在附近
-                    creep.say('⏸️');
-                }
-            }
-            else {
-                // 正常升級
-                const upgradeResult = creep.upgradeController(controller);
-                
-                if (upgradeResult == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(controller, {
-                        visualizePathStyle: {stroke: '#00ff00'}  // 綠色（升級中）
-                    });
-                } else if (upgradeResult == OK) {
-                    creep.say('⚡');
-                }
-            }
-        }
-    }
-    else {
-        // --- 採集模式: 在房間2採集 ---
-        
-        if (creep.room.name !== creep.memory.homeRoom) {
-            // 不在出生房間，返回
-            const exitDir = creep.room.findExitTo(creep.memory.homeRoom);
-            
-            if (exitDir === ERR_NO_PATH || exitDir === ERR_INVALID_ARGS) {
-                console.log(`[R2→R1] ❌ ${creep.name} 找不到回 ${creep.memory.homeRoom} 的路徑`);
-                return;
-            }
-            
-            const exit = creep.pos.findClosestByPath(exitDir);
-            if (exit) {
-                creep.moveTo(exit, {
-                    visualizePathStyle: {stroke: '#ffaa00'}  // 橘色（返回中）
-                });
-            }
-            return;
-        }
-        
-        // === 在房間2撿能量（從地上或 Source）===
-        
-        // 優先撿地上掉落的能量
-        const droppedEnergy = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
-            filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 50
+        // --- 優先級 1: 補給 Spawn/Extension ---
+        let target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => (s.structureType === STRUCTURE_EXTENSION || 
+                         s.structureType === STRUCTURE_SPAWN) &&
+                         s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
         });
         
-        if (droppedEnergy) {
-            // 地上有能量，去撿
-            if (creep.pickup(droppedEnergy) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(droppedEnergy, {
-                    visualizePathStyle: {stroke: '#ffff00'}  // 黃色（撿能量）
+        // --- 優先級 2: 補給 Tower ---
+        if (!target) {
+            target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: s => s.structureType === STRUCTURE_TOWER &&
+                            s.store.getFreeCapacity(RESOURCE_ENERGY) > 200
+            });
+        }
+        
+        // --- 優先級 3: 補給 Storage ---
+        if (!target) {
+            target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: s => s.structureType === STRUCTURE_STORAGE &&
+                            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+            });
+        }
+        
+        // --- 優先級 4: 補給 Container ---
+        if (!target) {
+            target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: s => s.structureType === STRUCTURE_CONTAINER &&
+                            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+            });
+        }
+        
+        // 如果找到目標建築
+        if (target) {
+            const transferResult = creep.transfer(target, RESOURCE_ENERGY);
+            
+            if (transferResult == ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, {
+                    visualizePathStyle: {stroke: '#ffffff'}
+                });
+            }
+            creep.say('🚚');
+        } else {
+            // --- 無處存放: 協助建造或升級 ---
+            const site = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+            
+            if (site) {
+                if (creep.build(site) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(site, {
+                        visualizePathStyle: {stroke: '#ffffff'}
+                    });
+                }
+                creep.say('🔨');
+            } else {
+                // 沒工地就協助升級
+                if (creep.upgradeController(creep.room.controller) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(creep.room.controller, {
+                        visualizePathStyle: {stroke: '#00ff00'}
+                    });
+                }
+                creep.say('⚡');
+            }
+        }
+    }
+    else {
+        // 背包未滿,進入採集模式
+        
+        // --- 採集策略 1: 優先從 Container 提取能量 ---
+        const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.structureType == STRUCTURE_CONTAINER &&
+                        s.store[RESOURCE_ENERGY] > 0
+        });
+        
+        if (container) {
+            const withdrawResult = creep.withdraw(container, RESOURCE_ENERGY);
+            
+            if (withdrawResult == ERR_NOT_IN_RANGE) {
+                creep.moveTo(container, {
+                    visualizePathStyle: {stroke: '#ffaa00'}
                 });
             }
             creep.say('💰');
-        }
-        else {
-            // 地上沒能量，備用方案：從 Source 採集
-            // 但只在 Harvester 不在位時才這樣做
-            const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+        } else {
+            // --- 採集策略 2: 直接採集 Source ---
+            let source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+            
+            if (!source) {
+                source = creep.pos.findClosestByRange(FIND_SOURCES_ACTIVE);
+            }
             
             if (source) {
                 const harvestResult = creep.harvest(source);
                 
                 if (harvestResult == ERR_NOT_IN_RANGE) {
                     creep.moveTo(source, {
-                        visualizePathStyle: {stroke: '#ffff00'}  // 黃色（採集）
+                        visualizePathStyle: {stroke: '#ffaa00'}
                     });
                 }
                 creep.say('⛏️');
+            }
+        }
+    }
+}
+
+// ============================================================
+// Upgrader 角色邏輯函數
+// ============================================================
+// 角色定位: 控制器升級專員
+// 主要任務: 持續升級房間控制器 (Controller) 提升 RCL
+// 工作流程:
+//   1. 背包空 → 去補充能量 (優先 Storage > Container > 地上掉落 > Source)
+//   2. 背包滿 → 去升級控制器
+//   3. 使用記憶體標記狀態,避免頻繁切換
+// ============================================================
+function runUpgrader(creep) {
+    
+    // === 狀態切換邏輯 ===
+    if(creep.memory.upgrading && creep.store[RESOURCE_ENERGY] == 0) {
+        creep.memory.upgrading = false;
+        creep.say('🔄');
+    }
+    
+    if(!creep.memory.upgrading && creep.store.getFreeCapacity() == 0) {
+        creep.memory.upgrading = true;
+        creep.say('⚡');
+    }
+    
+    // === 執行對應的行動 ===
+    if(creep.memory.upgrading) {
+        // --- 升級模式 ---
+        const upgradeResult = creep.upgradeController(creep.room.controller);
+        
+        if (upgradeResult == ERR_NOT_IN_RANGE) {
+            creep.moveTo(creep.room.controller, {
+                visualizePathStyle: {stroke: '#00ff00'}
+            });
+        }
+    }
+    else {
+        // --- 採集模式 ---
+        
+        // 優先級 1: 從 Storage 提取能量
+        const storage = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.structureType == STRUCTURE_STORAGE &&
+                        s.store[RESOURCE_ENERGY] > 0
+        });
+        
+        if (storage) {
+            const withdrawResult = creep.withdraw(storage, RESOURCE_ENERGY);
+            
+            if (withdrawResult == ERR_NOT_IN_RANGE) {
+                creep.moveTo(storage, {
+                    visualizePathStyle: {stroke: '#ffaa00'}
+                });
+            }
+        } else {
+            // 優先級 2: 從 Container 提取能量
+            const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: s => s.structureType == STRUCTURE_CONTAINER &&
+                            s.store[RESOURCE_ENERGY] > 0
+            });
+            
+            if(container) {
+                const withdrawResult = creep.withdraw(container, RESOURCE_ENERGY);
+                
+                if (withdrawResult == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(container, {
+                        visualizePathStyle: {stroke: '#ffaa00'}
+                    });
+                }
+            } else {
+                // 優先級 3: 撿地上掉落的能量
+                const droppedEnergy = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+                    filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 50
+                });
+                
+                if (droppedEnergy) {
+                    if (creep.pickup(droppedEnergy) == ERR_NOT_IN_RANGE) {
+                        creep.moveTo(droppedEnergy, {
+                            visualizePathStyle: {stroke: '#ffaa00'}
+                        });
+                    }
+                    creep.say('💰');
+                } else {
+                    // 優先級 4: 直接採集 Source
+                    const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+                    
+                    if (source) {
+                        if (creep.harvest(source) == ERR_NOT_IN_RANGE) {
+                            creep.moveTo(source, {
+                                visualizePathStyle: {stroke: '#ffaa00'}
+                            });
+                        }
+                        creep.say('⛏️');
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// Builder 角色邏輯函數
+// ============================================================
+// 角色定位: 建造者 + 修復者
+// 主要任務: 建造工地 → 修復建築 → 沒事時協助升級控制器
+// 工作流程:
+//   1. 背包空 → 去補充能量 (優先 Storage > Container > 地上掉落 > Source)
+//   2. 背包滿 → 去建造工地 (沒工地就修復建築,再沒事就升級)
+//   3. 使用記憶體標記狀態,避免頻繁切換
+// ============================================================
+function runBuilder(creep) {
+    
+    // === 狀態切換邏輯 ===
+    if(creep.memory.building && creep.store[RESOURCE_ENERGY] == 0) {
+        creep.memory.building = false;
+        creep.say('🔄');
+    }
+    
+    if(!creep.memory.building && creep.store.getFreeCapacity() == 0) {
+        creep.memory.building = true;
+        creep.say('�');
+    }
+    
+    // === 執行對應的行動 ===
+    if(creep.memory.building) {
+        // --- 建造模式 ---
+        
+        // 優先級 1: 建造工地
+        const target = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+        
+        if(target) {
+            const buildResult = creep.build(target);
+            
+            if (buildResult == ERR_NOT_IN_RANGE) {
+                creep.moveTo(target, {
+                    visualizePathStyle: {stroke: '#ffffff'}
+                });
+            }
+        }
+        else {
+            // 優先級 2: 修復受損建築 (血量 < 80%)
+            const damagedStructure = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: s => s.hits < s.hitsMax * 0.8 &&
+                            s.structureType != STRUCTURE_WALL &&
+                            s.structureType != STRUCTURE_RAMPART
+            });
+            
+            if (damagedStructure) {
+                if (creep.repair(damagedStructure) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(damagedStructure, {
+                        visualizePathStyle: {stroke: '#ffffff'}
+                    });
+                }
+                creep.say('🔧');
+            } else {
+                // 優先級 3: 協助升級控制器
+                const upgradeResult = creep.upgradeController(creep.room.controller);
+                
+                if (upgradeResult == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(creep.room.controller, {
+                        visualizePathStyle: {stroke: '#00ff00'}
+                    });
+                }
+                creep.say('⚡');
+            }
+        }
+    }
+    else {
+        // --- 採集模式 ---
+        
+        // 優先級 1: 從 Storage 提取能量
+        const storage = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            filter: s => s.structureType == STRUCTURE_STORAGE &&
+                        s.store[RESOURCE_ENERGY] > 0
+        });
+        
+        if (storage) {
+            const withdrawResult = creep.withdraw(storage, RESOURCE_ENERGY);
+            
+            if (withdrawResult == ERR_NOT_IN_RANGE) {
+                creep.moveTo(storage, {
+                    visualizePathStyle: {stroke: '#ffaa00'}
+                });
+            }
+        } else {
+            // 優先級 2: 從 Container 提取能量
+            const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: s => s.structureType == STRUCTURE_CONTAINER &&
+                            s.store[RESOURCE_ENERGY] > 0
+            });
+            
+            if(container) {
+                const withdrawResult = creep.withdraw(container, RESOURCE_ENERGY);
+                
+                if (withdrawResult == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(container, {
+                        visualizePathStyle: {stroke: '#ffaa00'}
+                    });
+                }
+            } else {
+                // 優先級 3: 撿地上掉落的能量
+                const droppedEnergy = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+                    filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 50
+                });
+                
+                if (droppedEnergy) {
+                    if (creep.pickup(droppedEnergy) == ERR_NOT_IN_RANGE) {
+                        creep.moveTo(droppedEnergy, {
+                            visualizePathStyle: {stroke: '#ffaa00'}
+                        });
+                    }
+                    creep.say('💰');
+                } else {
+                    // 優先級 4: 直接採集 Source
+                    const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+                    
+                    if (source) {
+                        if (creep.harvest(source) == ERR_NOT_IN_RANGE) {
+                            creep.moveTo(source, {
+                                visualizePathStyle: {stroke: '#ffaa00'}
+                            });
+                        }
+                        creep.say('⛏️');
+                    }
+                }
             }
         }
     }
@@ -525,99 +590,57 @@ function runCrossRoomUpgrader(creep) {
 // ============================================================
 // 程式碼結束
 // ============================================================
-// 房間2配置總結（雙重救援系統 v3.0）:
-// ✅ 2 個 Harvester（採集能量 + 補給建築）
-// ✅ 1 個本地 Upgrader（專職救援房間2 Controller，防止 Downgrade）
-// ✅ 2 個跨房間 Upgrader（支援房間1，帶防擁擠機制）
-// ✅ 解決 Controller 升級限制問題（15 能量/tick 上限）
-// ✅ 簡化建築系統（不建 Container/Tower/Storage）
-// 
-// 【重要知識】Controller 升級限制：
-// - 每個 Controller 每 tick 最多接受 15 能量的升級
-// - 1個 WORK 部件 = 1 能量/tick
-// - 理論飽和：15 個 WORK 部件
-// - 實際建議：2-3 個 Upgrader（每個 3-4 WORK）= 9-12 能量/tick
-// - 超過這個數量會導致擁擠，效率反而下降！
+// 房間2配置總結（自力更生版 v1.0）:
+// ✅ 標準三角色系統 (Harvester, Upgrader, Builder)
+// ✅ 根據 RCL 動態調整人口配置
+// ✅ 專注房間2自身發展
+// ✅ 完整的能量管理系統 (Storage, Container 優先)
+// ✅ 簡單高效的經濟體系
 // 
 // 系統工作流程:
-// 1. Harvester 採集 Source 並補給 Spawn/Extension
-// 2. 本地 Upgrader 持續升級房間2 Controller（防止 Downgrade）
-// 3. 跨房間 Upgrader 在房間2採集能量
-// 4. 跨房間 Upgrader 前往房間1升級 Controller
-// 5. 到達房間1後檢查周圍 Upgrader 數量：
-//    - 少於 3 個：正常升級
-//    - 超過 3 個：暫時協助建造或等待（避免擁擠）
-// 6. 能量用完後返回房間2重複流程
+// 1. Harvester 採集能量並運輸到建築
+// 2. Upgrader 持續升級 Controller
+// 3. Builder 建造工地和修復建築
+// 4. 所有角色優先從 Storage/Container 取能量
+// 5. 能量管理: Storage > Container > 地上掉落 > Source
 // 
 // 優點分析:
-// - ⭐ 救援房間2 Controller = 避免 Downgrade 和降級
-// - ⭐ 防擁擠機制 = 尊重 Controller 15 能量/tick 限制
-// - ⭐ 動態分配 = 人多時協助建造，人少時升級
-// - ⭐ 雙房間平衡 = 兩個房間都能穩定發展
+// - ⭐ 專注提升房間2實力
+// - ⭐ 簡單易維護的三角色系統
+// - ⭐ 根據 RCL 自動調整配置
+// - ⭐ 完整的能量優先級系統
+// - ⭐ 未來有餘力再考慮支援其他房間
 // 
 // 使用說明:
-// 1. 【緊急】立即執行清除命令（讓新配置生效）：
-//    Game.rooms['W3N27'].find(FIND_MY_CREEPS).forEach(c => c.suicide());
+// 1. 【建議】清除舊的 Transporter creep:
+//    Game.creeps['[R2→R1]T-xxxxx'].suicide();
 // 
 // 2. 等待新 creep 生產（優先順序）：
 //    - 第1個：Harvester（採集能量）
-//    - 第2個：本地 Upgrader（救援房間2 Controller）⚡
+//    - 第2個：Upgrader（升級 Controller）
 //    - 第3個：Harvester（增強採集）
-//    - 第4-5個：跨房間 Upgrader（支援房間1）
+//    - 第4個：Upgrader（加強升級）
+//    - 第5個：Builder（建造建築）
 // 
 // 3. 觀察 Console 輸出：
-//    🌍 [Room2] H:2 | LocalU:1 | CrossU:2
+//    🌍 [Room2] H:2 | U:2 | B:1
 // 
-// 4. 觀察房間2 Controller：
-//    - Downgrade 倒數計時應該停止下降
-//    - Progress 應該開始上升
-// 
-// 5. 觀察房間1 Controller：
-//    - 不應該再有 creep 卡在周圍不動
-//    - 最多 3 個 creep 同時升級
-//    - 多餘的 creep 會去建造或等待
+// 4. 發展目標：
+//    - 短期: 快速衝到 RCL3 (解鎖 Tower)
+//    - 中期: 建立完整經濟體系 (Container, Extension, Storage)
+//    - 長期: 達到 RCL5+ 後有餘力支援其他房間
 // 
 // 視覺化指示:
-// - 📍: Harvester 正在移動到固定位置
 // - ⛏️: 採集中
 // - 💰: 撿能量中
+// - 🚚: 運輸能量中
 // - ⚡: 升級中
-// - 🏗️: 建造中（防擁擠模式）
-// - ⏸️: 等待中（防擁擠模式）
-// - 🚀: 出發前往房間1
-// - 🔄: 返回房間2
+// - 🔨: 建造中
+// - �: 修復中
+// - 🔄: 切換狀態
 // 
 // 路徑顏色:
-// - 黃色: 採集/撿能量
-// - 綠色: 升級中
-// - 青色: 前往房間1
-// - 橘色: 返回房間2
-// - 白色: 建造中
-// ============================================================
-// 
-// 優點分析:
-// - ⭐ 固定 Harvester 不移動 = 100% 工作效率
-// - ⭐ 其他 creep 撿能量 = 不會在 Source 擁擠
-// - ⭐ 支援 4-5 個 Upgrader = 比之前多 2 倍產出
-// - ⭐ 簡單穩定 = 不需要複雜的調度系統
-// 
-// 使用說明:
-// 1. 清除所有舊 creep: Game.rooms['W3N27'].find(FIND_MY_CREEPS).forEach(c => c.suicide());
-// 2. 等待新 creep 生產（先生產 Harvester，然後生產 Upgrader）
-// 3. 觀察 Harvester 是否站在固定位置採集
-// 4. 觀察地上是否有掉落的能量（黃色方塊）
-// 5. 觀察 Upgrader 是否撿能量後前往房間1
-// 
-// 視覺化指示:
-// - 📍: Harvester 正在移動到固定位置
-// - ⛏️: Harvester 正在採集（或 Upgrader 備用採集）
-// - 💰: Upgrader 正在撿地上的能量
-// - 🚀: Upgrader 能量滿，出發前往房間1
-// - 🔄: Upgrader 能量用完，返回房間2
-// 
-// 路徑顏色:
-// - 橘色: Harvester 移動/Upgrader 返回中
-// - 黃色: 撿能量或採集中
-// - 青色: 前往房間1
-// - 綠色: 在房間1升級中
+// - 橘色 (#ffaa00): 採集/撿能量
+// - 綠色 (#00ff00): 升級中
+// - 白色 (#ffffff): 建造/運輸/修復中
 // ============================================================
