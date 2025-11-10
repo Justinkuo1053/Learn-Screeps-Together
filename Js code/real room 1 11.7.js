@@ -252,6 +252,74 @@ module.exports.loop = function () {
     }
 
     // ========================================================
+    // 模組 5.5: 左側 Wall 防線自動建造系統
+    // ========================================================
+    // 目的: 在左側出口建立 Wall 防線,完全封鎖鄰居入侵路徑
+    // 重要性: ★★★★★ (生存關鍵,防止突襲)
+    // 
+    // 防線策略:
+    // - 在 x=0 的位置建立 Wall 防線 (完全封鎖出口)
+    // - Wall 完全阻擋移動,敵人無法通過
+    // - 等之後要去左邊房間時,再改建 Rampart (可通過)
+    // 
+    // Wall 特性:
+    // - RCL2 解鎖 (你已經 RCL3,沒問題)
+    // - 建造成本: 2500 能量 (Rampart 5000)
+    // - 建造進度: 1250 (Rampart 2500) - 快一倍!
+    // - 初始血量: 1K,可升級到 300M
+    // - 完全阻擋移動 (敵人無法通過)
+    // - 不會自然衰減 (比 Rampart 更耐用)
+    // 
+    // 建造範圍: x=0, y=5-45 (覆蓋整個左側出口)
+    // ========================================================
+    
+    if (room.controller && room.controller.level >= 2) {
+        // === 建立左側 Wall 防線 ===
+        // ⚠️ 修正 v3: x=0 和 x=1 都無法建造 (ERR_INVALID_TARGET -7)
+        // ✅ 最終方案: 在 x=2 建造 Wall 防線
+        // 📝 說明: Screeps 邊界限制,x=0/1 y=0/1 x=48/49 y=48/49 都無法建造
+        const terrain = room.getTerrain();
+        let wallCount = 0;
+        const maxWallsPerTick = 3; // 每個 tick 最多建 3 個工地 (Wall 便宜,可以多建一點)
+        
+        for (let y = 5; y <= 45 && wallCount < maxWallsPerTick; y++) {
+            const x = 2; // ✅ 修正 v3: x=2 (邊界內第二格,可建造)
+            
+            // ✅ 智能判斷: 如果 x=0 或 x=1 有地形牆,x=2 就不需要建 Wall (已有天然屏障)
+            if (terrain.get(0, y) === TERRAIN_MASK_WALL || terrain.get(1, y) === TERRAIN_MASK_WALL) {
+                // x=0 或 x=1 已經是牆壁,不需要在 x=2 建 Wall
+                continue;
+            }
+            
+            // 跳過 x=2 本身的牆壁地形
+            if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+            
+            // 檢查是否已有 Wall
+            const hasWall = room.lookForAt(LOOK_STRUCTURES, x, y)
+                .some(s => s.structureType === STRUCTURE_WALL);
+            
+            if (hasWall) continue;
+            
+            // 檢查是否已有任何工地
+            const hasSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0;
+            
+            if (hasSite) continue;
+            
+            // 檢查是否已有其他建築 (避免覆蓋)
+            const hasStructure = room.lookForAt(LOOK_STRUCTURES, x, y).length > 0;
+            
+            if (hasStructure) continue;
+            
+            // 嘗試建立 Wall 工地
+            const res = room.createConstructionSite(x, y, STRUCTURE_WALL);
+            if (res === OK) {
+                wallCount++;
+                console.log('🧱 建立左側 Wall 防線 (x=2):', x, y);
+            }
+        }
+    }
+
+    // ========================================================
     // 模組 6: Storage 自動建造系統
     // ========================================================
     // 目的: 在 RCL4 時自動建造 Storage 作為中央能量庫
@@ -532,10 +600,10 @@ module.exports.loop = function () {
         targetUpgraders = 6;   // 💥 激增 Upgrader! (全力升級)
         targetBuilders = 0;    // 🛑 暫停建造 (節省能量)
     } else if (rcl < 5) {
-        // RCL 3-4: 穩固防禦
+        // RCL 3-4: 防禦建設模式
         targetHarvesters = 4;  // 維持能量供應
         targetUpgraders = 2;   // 持續升級
-        targetBuilders = 2;    // 持續修復 Rampart
+        targetBuilders = 3;    // 💪 增加 Builder 加速防線建造
     } else {
         // RCL 5+: 穩定運營
         targetHarvesters = 5;  // 增加採集效率
@@ -1008,15 +1076,17 @@ function runUpgrader(creep) {
 // Builder 角色邏輯函數
 // ============================================================
 // 角色定位: 建造者 + 修復者
-// 主要任務: 建造工地 → 沒工地時協助升級控制器
+// 主要任務: 建造工地 → 修復防禦建築 → 沒工地時協助升級
 // 工作流程:
 //   1. 背包空 → 去補充能量 (優先 Storage > Container > Source)
-//   2. 背包滿 → 去建造工地 (沒工地就升級控制器)
-//   3. 使用記憶體標記狀態,避免頻繁切換
+//   2. 背包滿 → 優先建造 (防禦建築 > 經濟建築)
+//   3. 沒工地 → 修復低血量防禦建築
+//   4. 都沒事 → 協助升級控制器
 // 
 // 工作優先級:
-// - 建造工地: 最高優先 (完成基礎建設)
-// - 升級控制器: 次優先 (沒工地時協助升級,避免閒置)
+// - 建造工地: 最高優先 (Tower > Rampart > Extension > 其他)
+// - 修復防禦: 次優先 (Rampart < 10K 血量)
+// - 升級控制器: 低優先 (避免閒置)
 // 
 // 狀態機制:
 // - memory.building = true: 建造模式
@@ -1043,8 +1113,29 @@ function runBuilder(creep) {
     if(creep.memory.building) {
         // --- 建造模式 ---
         
-        // 尋找最近的工地
-        const target = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+        // 優先級 1: 建造 Tower (最優先)
+        let target = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES, {
+            filter: s => s.structureType === STRUCTURE_TOWER
+        });
+        
+        // 優先級 2: 建造 Wall (防禦優先 - 封鎖左側出口)
+        if (!target) {
+            target = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES, {
+                filter: s => s.structureType === STRUCTURE_WALL
+            });
+        }
+        
+        // 優先級 3: 建造 Extension (經濟發展)
+        if (!target) {
+            target = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES, {
+                filter: s => s.structureType === STRUCTURE_EXTENSION
+            });
+        }
+        
+        // 優先級 4: 建造其他建築
+        if (!target) {
+            target = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+        }
         
         if(target) {
             // 找到工地,進行建造
@@ -1058,14 +1149,32 @@ function runBuilder(creep) {
             }
         }
         else {
-            // 沒有工地,協助升級控制器 (避免閒置)
-            const upgradeResult = creep.upgradeController(creep.room.controller);
+            // === 沒有工地: 修復低血量防禦建築 ===
+            const damagedDefense = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                filter: s => (s.structureType === STRUCTURE_WALL || 
+                             s.structureType === STRUCTURE_RAMPART) &&
+                            s.hits < 10000 // 只修復低於 10K 血量的
+            });
             
-            if (upgradeResult == ERR_NOT_IN_RANGE) {
-                // 不在範圍內,移動過去
-                creep.moveTo(creep.room.controller, {
-                    visualizePathStyle: {stroke: '#ffffff'} // 白色路徑
-                });
+            if (damagedDefense) {
+                const repairResult = creep.repair(damagedDefense);
+                
+                if (repairResult == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(damagedDefense, {
+                        visualizePathStyle: {stroke: '#ffffff'}
+                    });
+                }
+                creep.say('🔧'); // 顯示修復圖示
+            } else {
+                // 都沒事,協助升級控制器 (避免閒置)
+                const upgradeResult = creep.upgradeController(creep.room.controller);
+                
+                if (upgradeResult == ERR_NOT_IN_RANGE) {
+                    // 不在範圍內,移動過去
+                    creep.moveTo(creep.room.controller, {
+                        visualizePathStyle: {stroke: '#ffffff'} // 白色路徑
+                    });
+                }
             }
         }
     }
