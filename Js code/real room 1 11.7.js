@@ -527,10 +527,10 @@ module.exports.loop = function () {
     let targetHarvesters, targetUpgraders, targetBuilders;
     
     if (rcl < 3) {
-        // RCL 1-2: 全力衝 RCL3 解鎖 Tower (最高優先!)
-        targetHarvesters = 4;  // 增加採集者確保能量充足
-        targetUpgraders = 3;   // 全力升級
-        targetBuilders = 2;    // 需要建 Rampart 和 Extension
+        // 🚨 緊急模式: 全力衝 RCL3 (Safe Mode 即將結束!)
+        targetHarvesters = 3;  // 減少採集者 (夠用就好)
+        targetUpgraders = 6;   // 💥 激增 Upgrader! (全力升級)
+        targetBuilders = 0;    // 🛑 暫停建造 (節省能量)
     } else if (rcl < 5) {
         // RCL 3-4: 穩固防禦
         targetHarvesters = 4;  // 維持能量供應
@@ -647,18 +647,18 @@ module.exports.loop = function () {
         // 根據能量容量選擇最佳 body 配置
         let body;
         if (room.energyCapacityAvailable >= 800) {
-            // 高級配置 (800 能量)
-            // 4 WORK: 升級速度 4/tick
-            // 2 CARRY: 容量 100
+            // 🔥 超級配置 (800 能量) - 升級效率最大化!
+            // 5 WORK: 升級速度 5/tick
+            // 3 CARRY: 容量 150 (更少往返)
             // 2 MOVE: 基本移動速度
-            body = [WORK,WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE];
+            body = [WORK,WORK,WORK,WORK,WORK,CARRY,CARRY,CARRY,MOVE,MOVE];
         }
         else if (room.energyCapacityAvailable >= 550) {
             // 中級配置 (550 能量)
-            // 2 WORK: 升級速度 2/tick
-            // 1 CARRY: 容量 50
+            // 3 WORK: 升級速度 3/tick
+            // 2 CARRY: 容量 100
             // 2 MOVE: 基本移動速度
-            body = [WORK,WORK,CARRY,MOVE,MOVE];
+            body = [WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE];
         }
         else {
             // 最小配置 (200 能量)
