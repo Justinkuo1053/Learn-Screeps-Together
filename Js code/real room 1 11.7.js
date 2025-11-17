@@ -1,3 +1,4 @@
+//Learn and build by Justin Kuo XD
 // ============================================================
 // main.js - Screeps 新手區16天完整發展系統
 // ============================================================
@@ -9,7 +10,8 @@
 // 1. 記憶體清理系統
 // 2. 自動 Safe Mode 觸發系統 (關鍵防禦!)
 // 3. 基礎建築自動建造 (Container, Extension, Storage)
-// 4. 防禦建築自動建造 (Tower, Rampart)
+// 4. 防禦建築自動
+// 建造 (Tower, Rampart)
 // 5. Creep 動態生產系統
 // 6. 三角色工作邏輯 (Harvester, Upgrader, Builder)
 // ============================================================
@@ -42,14 +44,25 @@ module.exports.loop = function () {
     const harvesters = _.filter(Game.creeps, c => c.memory.role == 'harvester'); // 採集運輸者
     const upgraders = _.filter(Game.creeps, c => c.memory.role == 'upgrader');   // 控制器升級者
     const builders = _.filter(Game.creeps, c => c.memory.role == 'builder');     // 建造修復者
+    // 取得 Spawn 物件 (優先找 Spawn1,找不到就取第一個可用的)
+    const spawn = Game.spawns['Spawn1'] || Object.values(Game.spawns)[0];
     
     // 在控制台輸出統計資訊 (方便監控)
     console.log('📊 H:' + harvesters.length + 
                 ' | U:' + upgraders.length + 
                 ' | B:' + builders.length);
-
-    // 取得 Spawn 物件 (優先找 Spawn1,找不到就取第一個可用的)
-    const spawn = Game.spawns['Spawn1'] || Object.values(Game.spawns)[0];
+    
+    // 🔍 診斷: 每 10 ticks 輸出詳細狀態
+    if (Game.time % 10 === 0) {
+        const room = spawn.room;
+        console.log('🔍 診斷報告 (Tick', Game.time, '):');
+        console.log('  能量:', room.energyAvailable, '/', room.energyCapacityAvailable);
+        console.log('  降級倒數:', room.controller.ticksToDowngrade, 'ticks');
+        console.log('  Spawn:', spawn.spawning ? '生產中 (' + spawn.spawning.name + ')' : '閒置');
+        if (upgraders.length === 0) {
+            console.log('  ⚠️ 沒有 Upgrader！');
+        }
+    }
     
     // 如果沒有 Spawn,跳過本次循環 (異常狀況)
     if (!spawn) {
@@ -59,6 +72,69 @@ module.exports.loop = function () {
     
     // 取得 Spawn 所在的房間物件
     const room = spawn.room;
+
+    // ========================================================
+    // 模組 2.5: 攻擊記錄檢測系統 (新增)
+    // ========================================================
+    // 目的: 追蹤房間是否曾被攻擊
+    // 檢測項目: 
+    // 1. Safe Mode 是否啟動過
+    // 2. 是否有受損建築
+    // 3. 是否有 creep 墓碑
+    // ========================================================
+    
+    // 初始化攻擊記錄記憶體
+    if (!Memory.attackLog) {
+        Memory.attackLog = {
+            lastAttackTime: 0,           // 上次攻擊時間
+            totalAttacks: 0,              // 總攻擊次數
+            safeModeActivations: 0,       // Safe Mode 啟動次數
+            creepLosses: 0                // Creep 損失數量
+        };
+    }
+    
+    // 檢查是否有受損建築（可能被攻擊）
+    const damagedStructures = room.find(FIND_STRUCTURES, {
+        filter: s => s.hits < s.hitsMax && 
+                     s.structureType !== STRUCTURE_WALL && 
+                     s.structureType !== STRUCTURE_RAMPART
+    });
+    
+    // 檢查是否有墓碑（creep 死亡）
+    const tombstones = room.find(FIND_TOMBSTONES);
+    
+    // 檢查 Safe Mode 狀態
+    if (room.controller && room.controller.safeMode) {
+        if (!Memory.attackLog.inSafeMode) {
+            // 剛啟動 Safe Mode
+            Memory.attackLog.inSafeMode = true;
+            Memory.attackLog.lastAttackTime = Game.time;
+            Memory.attackLog.totalAttacks++;
+            Memory.attackLog.safeModeActivations++;
+            console.log('🚨 記錄攻擊事件! 時間:', Game.time);
+        }
+    } else {
+        Memory.attackLog.inSafeMode = false;
+    }
+    
+    // 記錄 creep 損失
+    if (tombstones.length > 0) {
+        for (let tomb of tombstones) {
+            if (tomb.creep.my && !tomb.ticksToDecay) {
+                Memory.attackLog.creepLosses++;
+            }
+        }
+    }
+    
+    // 每 100 ticks 輸出一次攻擊記錄摘要
+    if (Game.time % 100 === 0 && Memory.attackLog.totalAttacks > 0) {
+        console.log('📊 攻擊記錄摘要:');
+        console.log('  - 總攻擊次數:', Memory.attackLog.totalAttacks);
+        console.log('  - 上次攻擊:', Memory.attackLog.lastAttackTime, '(', Game.time - Memory.attackLog.lastAttackTime, 'ticks 前)');
+        console.log('  - Safe Mode 啟動次數:', Memory.attackLog.safeModeActivations);
+        console.log('  - Creep 損失數:', Memory.attackLog.creepLosses);
+        console.log('  - 受損建築:', damagedStructures.length, '個');
+    }
 
     // ========================================================
     // 模組 3: 自動 Safe Mode 觸發系統 (關鍵防禦機制!)
@@ -274,7 +350,152 @@ module.exports.loop = function () {
     // ========================================================
     
     if (room.controller && room.controller.level >= 2) {
-        // === 建立左側 Wall 防線 ===
+        // ========================================================
+        // 🎯 用戶自訂防禦系統 (修正版)
+        // ========================================================
+        // 防線位置: x=2 的左側防線
+        // Y 範圍: 21-24, 35-41, 46-47
+        // Tower 位置: (3,11), (3,22), (3,35), (3,41), (3,47)
+        // 
+        // 防禦策略:
+        // - 在 x=2 建立 Wall 防線（靠近左邊邊界）
+        // - 在 x=3 建立 Tower（防線後方 1 格，安全位置）
+        // - Tower 能量策略：保持 800+ 能量儲備，沒攻擊時不額外充能
+        // ========================================================
+        
+        // === 第一階段: 建立 x=2 左側防線 Wall ===
+        const wallYRanges = [
+            { start: 21, end: 24 },  // 第一段 (4 個 Wall)
+            { start: 35, end: 41 },  // 第二段 (7 個 Wall)
+            { start: 46, end: 47 }   // 第三段 (2 個 Wall)
+        ];
+        
+        const wallX = 2; // 左側防線位置
+        let wallBuiltCount = 0;
+        const maxWallsPerTickCustom = 5; // 每 tick 最多建 5 個 Wall
+        
+        for (let range of wallYRanges) {
+            for (let y = range.start; y <= range.end && wallBuiltCount < maxWallsPerTickCustom; y++) {
+                // 檢查是否為牆壁地形
+                if (room.getTerrain().get(wallX, y) === TERRAIN_MASK_WALL) continue;
+                
+                // 檢查是否已有 Wall
+                const hasWall = room.lookForAt(LOOK_STRUCTURES, wallX, y)
+                    .some(s => s.structureType === STRUCTURE_WALL);
+                
+                // 檢查是否已有工地
+                const hasSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, wallX, y).length > 0;
+                
+                // 檢查是否已有其他建築
+                const hasOtherStructure = room.lookForAt(LOOK_STRUCTURES, wallX, y).length > 0;
+                
+                if (!hasWall && !hasSite && !hasOtherStructure) {
+                    const res = room.createConstructionSite(wallX, y, STRUCTURE_WALL);
+                    if (res === OK) {
+                        wallBuiltCount++;
+                        console.log('🧱 左側防線 Wall (x=2):', wallX, y);
+                    }
+                }
+            }
+        }
+        
+        // === 第二階段: 建立 Tower (等 Wall 都建好後再建) ===
+        // 統計 x=2 防線的 Wall 工地數量
+        const customWallSitesCount = room.find(FIND_CONSTRUCTION_SITES, {
+            filter: s => s.structureType === STRUCTURE_WALL && s.pos.x === wallX
+        }).length;
+        
+        // 統計 x=2 防線已建好的 Wall 數量
+        const customWallBuiltCount = room.find(FIND_STRUCTURES, {
+            filter: s => s.structureType === STRUCTURE_WALL && s.pos.x === wallX
+        }).length;
+        
+        // 📊 每 50 ticks 輸出一次狀態（方便追蹤）
+        if (Game.time % 50 === 0) {
+            console.log('📊 左側防線狀態:');
+            console.log('  - Wall 已建造:', customWallBuiltCount, '/ 13');
+            console.log('  - Wall 工地中:', customWallSitesCount);
+            console.log('  - RCL:', room.controller.level);
+        }
+        
+        // 🔧 修正: 不等 Wall 建完，直接開始建 Tower（避免等太久）
+        // 條件: RCL3 以上即可建 Tower
+        if (room.controller.level >= 3) {
+            const towerPositions = [
+                { x: 3, y: 11 },  // 北側 Tower
+                { x: 3, y: 22 },  // 中北 Tower
+                { x: 3, y: 35 },  // 中央 Tower
+                { x: 3, y: 41 },  // 中南 Tower
+                { x: 3, y: 47 }   // 南側 Tower
+            ];
+            
+            // 統計已有的 Tower 數量
+            const existingTowers = room.find(FIND_MY_STRUCTURES, {
+                filter: s => s.structureType === STRUCTURE_TOWER
+            }).length;
+            
+            const towerSites = room.find(FIND_MY_CONSTRUCTION_SITES, {
+                filter: s => s.structureType === STRUCTURE_TOWER
+            }).length;
+            
+            // RCL 對應的 Tower 上限
+            const maxTowersForRCL = room.controller.level >= 8 ? 6 : 
+                                   room.controller.level >= 7 ? 3 :
+                                   room.controller.level >= 5 ? 2 : 1;
+            
+            // 📊 輸出 Tower 狀態
+            if (Game.time % 50 === 0) {
+                console.log('  - Tower 已建造:', existingTowers, '/', maxTowersForRCL, '(RCL', room.controller.level, '上限)');
+                console.log('  - Tower 工地中:', towerSites);
+            }
+            
+            // 只建造 RCL 允許的數量
+            let towersBuilt = 0;
+            for (let pos of towerPositions) {
+                // 檢查是否已達上限
+                if (existingTowers + towerSites >= maxTowersForRCL) {
+                    if (Game.time % 100 === 0) {
+                        console.log('⚠️ Tower 已達 RCL', room.controller.level, '上限 (', maxTowersForRCL, '個)');
+                    }
+                    break;
+                }
+                
+                // 檢查地形
+                if (room.getTerrain().get(pos.x, pos.y) === TERRAIN_MASK_WALL) {
+                    console.log('⚠️ Tower 位置 (', pos.x, ',', pos.y, ') 是牆壁地形，跳過');
+                    continue;
+                }
+                
+                // 檢查是否已有 Tower
+                const hasTower = room.lookForAt(LOOK_STRUCTURES, pos.x, pos.y)
+                    .some(s => s.structureType === STRUCTURE_TOWER);
+                
+                // 檢查是否已有工地
+                const hasSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, pos.x, pos.y).length > 0;
+                
+                // 檢查是否已有其他建築
+                const hasOtherStructure = room.lookForAt(LOOK_STRUCTURES, pos.x, pos.y)
+                    .filter(s => s.structureType !== STRUCTURE_ROAD).length > 0;
+                
+                if (!hasTower && !hasSite && !hasOtherStructure) {
+                    const res = room.createConstructionSite(pos.x, pos.y, STRUCTURE_TOWER);
+                    if (res === OK) {
+                        towersBuilt++;
+                        console.log('🗼 建立 Tower 工地 (x=3):', pos.x, pos.y);
+                    } else if (res === ERR_INVALID_TARGET) {
+                        console.log('⚠️ Tower (', pos.x, ',', pos.y, ') 無法建造 ERR_INVALID_TARGET');
+                    } else if (res === ERR_RCL_NOT_ENOUGH) {
+                        console.log('⚠️ RCL 不足，Tower 需要 RCL3，當前 RCL', room.controller.level);
+                    } else if (res === ERR_FULL) {
+                        console.log('⚠️ 工地數量已滿 (100個上限)');
+                    } else {
+                        console.log('⚠️ Tower (', pos.x, ',', pos.y, ') 建造失敗，錯誤碼:', res);
+                    }
+                }
+            }
+        }
+        
+        // === 建立左側 Wall 防線 (原有的 x=2 自動防線) ===
         // ⚠️ 修正 v3: x=0 和 x=1 都無法建造 (ERR_INVALID_TARGET -7)
         // ✅ 最終方案: 在 x=2 建造 Wall 防線
         // 📝 說明: Screeps 邊界限制,x=0/1 y=0/1 x=48/49 y=48/49 都無法建造
@@ -704,50 +925,66 @@ module.exports.loop = function () {
     // ========================================================
     // 生產邏輯 3: 正常生產 Upgrader
     // ========================================================
-    // 觸發條件: Upgrader 數量 < 目標數量 且 能量全滿
-    // 特點: 等能量全滿才生產 (確保最大配置)
-    // 目的: Upgrader 需要長時間工作,優先生產大體型
+    // 🔧 修正: RCL4+ 時 Upgrader 很重要，不能等能量全滿
+    // 策略: 
+    // - 有 200 能量就生產（避免降級）
+    // - 優先生產防止 Controller downgrade
     // ========================================================
-    else if(upgraders.length < targetUpgraders && room.energyAvailable === room.energyCapacityAvailable) {
-        // 生成 Upgrader 名稱 (U = Upgrader)
-        const newName = 'U' + Game.time;
+    else if(upgraders.length < targetUpgraders) {
+        // 🚨 緊急: 如果沒有 Upgrader 或 Controller 快降級，立即生產最小配置
+        const controllerNearDowngrade = room.controller.ticksToDowngrade < 20000;
+        const noUpgraders = upgraders.length === 0;
         
-        // 根據能量容量選擇最佳 body 配置
-        let body;
-        if (room.energyCapacityAvailable >= 800) {
-            // 🔥 超級配置 (800 能量) - 升級效率最大化!
-            // 5 WORK: 升級速度 5/tick
-            // 3 CARRY: 容量 150 (更少往返)
-            // 2 MOVE: 基本移動速度
-            body = [WORK,WORK,WORK,WORK,WORK,CARRY,CARRY,CARRY,MOVE,MOVE];
+        if ((noUpgraders || controllerNearDowngrade) && room.energyAvailable >= 200) {
+            // 緊急模式: 生產最小 Upgrader
+            const body = [WORK, CARRY, MOVE];
+            const newName = 'Emergency_U' + Game.time;
+            const res = spawn.spawnCreep(body, newName, {memory: {role: 'upgrader'}});
+            if (res === OK) {
+                console.log('🚨 緊急生產 Upgrader (防降級) ->', newName);
+            }
         }
-        else if (room.energyCapacityAvailable >= 550) {
-            // 中級配置 (550 能量)
-            // 3 WORK: 升級速度 3/tick
-            // 2 CARRY: 容量 100
-            // 2 MOVE: 基本移動速度
-            body = [WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE];
-        }
-        else {
-            // 最小配置 (200 能量)
-            body = [WORK,CARRY,MOVE];
-        }
-        
-        // 嘗試生產 creep
-        const res = spawn.spawnCreep(body, newName, {memory: {role: 'upgrader'}});
-        if (res === OK) {
-            console.log('⚡ 生產 Upgrader ->', newName);
+        // 正常模式: 等能量充足再生產更好的配置
+        else if (room.energyAvailable >= 550 || room.energyAvailable === room.energyCapacityAvailable) {
+            // 生成 Upgrader 名稱 (U = Upgrader)
+            const newName = 'U' + Game.time;
+            
+            // 根據當前能量選擇最佳 body 配置
+            let body;
+            if (room.energyAvailable >= 800) {
+                // 🔥 超級配置 (800 能量) - 升級效率最大化!
+                // 5 WORK: 升級速度 5/tick
+                // 3 CARRY: 容量 150 (更少往返)
+                // 2 MOVE: 基本移動速度
+                body = [WORK,WORK,WORK,WORK,WORK,CARRY,CARRY,CARRY,MOVE,MOVE];
+            }
+            else if (room.energyAvailable >= 550) {
+                // 中級配置 (550 能量)
+                // 3 WORK: 升級速度 3/tick
+                // 2 CARRY: 容量 100
+                // 2 MOVE: 基本移動速度
+                body = [WORK,WORK,WORK,CARRY,CARRY,MOVE,MOVE];
+            }
+            else {
+                // 最小配置 (200 能量)
+                body = [WORK,CARRY,MOVE];
+            }
+            
+            // 嘗試生產 creep
+            const res = spawn.spawnCreep(body, newName, {memory: {role: 'upgrader'}});
+            if (res === OK) {
+                console.log('⚡ 生產 Upgrader ->', newName);
+            }
         }
     }
     
     // ========================================================
     // 生產邏輯 4: 正常生產 Builder
     // ========================================================
-    // 觸發條件: Builder 數量 < 目標數量 且 能量全滿
-    // 特點: 等能量全滿才生產 (確保最大配置)
-    // 目的: Builder 需要建造和修復,優先生產大體型
+    // 🔧 修正: Builder 也不用等能量全滿
+    // 策略: 有 400+ 能量就可以生產（建造需求沒那麼急）
     // ========================================================
-    else if(builders.length < targetBuilders && room.energyAvailable === room.energyCapacityAvailable) {
+    else if(builders.length < targetBuilders && room.energyAvailable >= 400) {
         // 生成 Builder 名稱 (B = Builder)
         const newName = 'B' + Game.time;
         
@@ -853,11 +1090,11 @@ function runHarvester(creep) {
         
         // --- 優先級 2: 補給 Tower ---
         // 目的: 確保防禦建築有能量可以攻擊和修復
-        // 注意: 只在 Tower 能量低於 200 時補給 (避免過度補給)
+        // 注意: 只在 Tower 能量低於 800 時補給 (避免過度補給)
         if (!target) {
             target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
                 filter: s => s.structureType === STRUCTURE_TOWER &&
-                            s.store.getFreeCapacity(RESOURCE_ENERGY) > 200
+                            s.store[RESOURCE_ENERGY] < 800
             });
         }
         
@@ -892,31 +1129,19 @@ function runHarvester(creep) {
                 });
             }
         } else {
-            // --- 無處存放: 協助建造或升級 ---
-            // 目的: 避免 creep 閒置浪費能量
+            // --- 無處存放: 在 Spawn 旁邊等待 ---
+            // 🔧 修正: 不要亂花能量！等待能量建築有空間
+            // 原因: 如果 Harvester 去建造/升級，會把能量用掉
+            //       導致房間能量累積不到 550，無法生產 Upgrader
             
-            // 嘗試尋找工地
-            const site = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
-            
-            if (site) {
-                // 找到工地,協助建造
-                const buildResult = creep.build(site);
-                
-                if (buildResult == ERR_NOT_IN_RANGE) {
-                    // 不在範圍內,移動過去
-                    creep.moveTo(site);
-                }
-                creep.say('🚧'); // 顯示建造圖示
-            } else if (creep.room.controller) {
-                // 沒有工地,協助升級控制器
-                const upgradeResult = creep.upgradeController(creep.room.controller);
-                
-                if (upgradeResult == ERR_NOT_IN_RANGE) {
-                    // 不在範圍內,移動過去
-                    creep.moveTo(creep.room.controller);
-                }
-                creep.say('⚡'); // 顯示升級圖示
+            // 移動到 Spawn 旁邊待命
+            const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
+            if (spawn && !creep.pos.isNearTo(spawn)) {
+                creep.moveTo(spawn, {
+                    visualizePathStyle: {stroke: '#ffaa00'}
+                });
             }
+            creep.say('💤'); // 顯示等待圖示
         }
     }
     else {
@@ -987,18 +1212,23 @@ function runHarvester(creep) {
 // ============================================================
 function runUpgrader(creep) {
     
+    // === 初始化記憶體 (修正: 新 Upgrader 需要初始狀態) ===
+    if (creep.memory.upgrading === undefined) {
+        creep.memory.upgrading = false; // 預設: 先去採集能量
+    }
+    
     // === 狀態切換邏輯 ===
     
     // 如果正在升級但能量用完了
     if(creep.memory.upgrading && creep.store[RESOURCE_ENERGY] == 0) {
         creep.memory.upgrading = false; // 切換到採集模式
-        creep.say('🔄');                // 顯示切換圖示
+        creep.say('🔄 採集');           // 顯示切換圖示
     }
     
     // 如果不在升級且背包滿了
     if(!creep.memory.upgrading && creep.store.getFreeCapacity() == 0) {
         creep.memory.upgrading = true;  // 切換到升級模式
-        creep.say('⚡');                // 顯示升級圖示
+        creep.say('⚡ 升級');           // 顯示升級圖示
     }
     
     // === 執行對應的行動 ===
@@ -1094,18 +1324,23 @@ function runUpgrader(creep) {
 // ============================================================
 function runBuilder(creep) {
     
+    // === 初始化記憶體 (修正: 新 Builder 需要初始狀態) ===
+    if (creep.memory.building === undefined) {
+        creep.memory.building = false; // 預設: 先去採集能量
+    }
+    
     // === 狀態切換邏輯 ===
     
     // 如果正在建造但能量用完了
     if(creep.memory.building && creep.store[RESOURCE_ENERGY] == 0) {
         creep.memory.building = false; // 切換到採集模式
-        creep.say('🔄');               // 顯示切換圖示
+        creep.say('🔄 採集');          // 顯示切換圖示
     }
     
     // 如果不在建造且背包滿了
     if(!creep.memory.building && creep.store.getFreeCapacity() == 0) {
         creep.memory.building = true;  // 切換到建造模式
-        creep.say('🔨');               // 顯示建造圖示
+        creep.say('🔨 建造');          // 顯示建造圖示
     }
     
     // === 執行對應的行動 ===
