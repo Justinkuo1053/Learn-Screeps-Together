@@ -155,17 +155,25 @@ module.exports.loop = function () {
     // - 有多餘次數可以主動啟動避免突襲
     // ========================================================
     if (room.controller && !room.controller.safeMode) {
-        // 檢查條件 1: 房間有 Controller
-        // 檢查條件 2: 目前沒有在 Safe Mode 中
-        
         // 搜尋房間內所有敵對 creep
         const hostiles = room.find(FIND_HOSTILE_CREEPS);
-        
-        // 如果發現敵人且有可用的 Safe Mode 次數
-        if (hostiles.length > 0 && room.controller.safeModeAvailable > 0) {
-            // 立即啟動 Safe Mode
-            room.controller.activateSafeMode();
-            console.log('🚨 檢測到入侵! 自動啟動 Safe Mode');
+
+        // 如果發現敵人
+        if (hostiles.length > 0) {
+            // 更新攻擊記錄
+            if (!Memory.attackLog.recentAttacks) {
+                Memory.attackLog.recentAttacks = [];
+            }
+            Memory.attackLog.recentAttacks.push(Game.time);
+
+            // 保留最近 100 ticks 的攻擊記錄
+            Memory.attackLog.recentAttacks = Memory.attackLog.recentAttacks.filter(time => Game.time - time <= 100);
+
+            // 如果攻擊次數達到條件且有可用的 Safe Mode 次數
+            if (Memory.attackLog.recentAttacks.length >= 2 && room.controller.safeModeAvailable > 0) {
+                room.controller.activateSafeMode();
+                console.log('🚨 檢測到連續攻擊! 自動啟動 Safe Mode');
+            }
         }
     }
 
@@ -1473,15 +1481,7 @@ function runBuilder(creep) {
 // ============================================================
 // 程式碼結束
 // ============================================================
-// 總結: 這是一個完整的新手區發展系統,包含:
-// ✅ 自動 Safe Mode 防禦
-// ✅ 基礎建築自動建造 (Container, Extension, Storage)
-// ✅ 防禦建築自動建造 (Tower)
-// ✅ 動態 Creep 生產系統
-// ✅ 三角色完整工作邏輯
-// 
-// 適用場景: Novice Area 16天保護期
-// 目標: 快速衝到 RCL3-5, 建立完整防禦體系
+// 總結:
 // ============================================================
 // // Basic configuration for a new room in Screeps
 
